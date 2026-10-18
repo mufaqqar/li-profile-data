@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "LinkedIn Profile Sidebar",
+  "version": "2.0.0",
+  "description": "Side panel jo LinkedIn API (OpenID Connect) se signed-in member ka profile data fetch karta hai.",
+  "permissions": ["identity", "storage", "sidePanel"],
+  "host_permissions": [
+    "https://api.linkedin.com/*",
+    "https://www.linkedin.com/*",
+    "https://*.chromiumapp.org/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Open LinkedIn sidebar" },
+  "side_panel": { "default_path": "sidepanel.html" }
+}

@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { width: 420px; margin: 0; font: 13px system-ui, sans-serif; color: #1d2226; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: #0a66c2; color: #fff; }
+    header h1 { font-size: 15px; margin: 0; }
+    .bar { display: flex; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #e0e0e0; }
+    button { cursor: pointer; border: 1px solid #0a66c2; background: #fff; color: #0a66c2; border-radius: 14px; padding: 4px 12px; font-size: 12px; }
+    button.primary { background: #0a66c2; color: #fff; }
+    button.danger { border-color: #c0392b; color: #c0392b; }
+    input { flex: 1; padding: 5px 10px; border: 1px solid #ccc; border-radius: 14px; font-size: 12px; }
+    #list { max-height: 420px; overflow-y: auto; }
+    .card { padding: 10px 14px; border-bottom: 1px solid #eee; }
+    .card .name { font-weight: 600; }
+    .card .name a { color: inherit; text-decoration: none; }
+    .row { display: flex; align-items: center; gap: 8px; margin-top: 4px; color: #444; }
+    .row span.v { flex: 1; word-break: break-all; }
+    .row button { padding: 1px 8px; font-size: 11px; }
+    .empty { padding: 24px 14px; text-align: center; color: #666; line-height: 1.5; }
+    .meta { color: #888; font-size: 11px; margin-top: 4px; display: flex; justify-content: space-between; }
+  </style>
+</head>
+<body>
+  <header><h1>LinkedIn Contact Reader</h1><span id="count"></span></header>
+  <div class="bar">
+    <input id="q" placeholder="Search name / email / phone">
+    <button id="export" class="primary">CSV</button>
+    <button id="clear" class="danger">Clear</button>
+  </div>
+  <div id="list"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

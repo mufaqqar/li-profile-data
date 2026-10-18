@@ -1,0 +1,91 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { margin: 0; font: 13px system-ui, sans-serif; color: #1d2226; background: #f4f2ee; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: #0a66c2; color: #fff; }
+    header h1 { font-size: 15px; margin: 0; }
+    #statusDot { font-size: 11px; opacity: .9; }
+    section { background: #fff; margin: 10px; padding: 12px 14px; border: 1px solid #e0e0e0; border-radius: 8px; }
+    h2 { font-size: 12px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .4px; color: #666; }
+    button { cursor: pointer; border: 1px solid #0a66c2; background: #fff; color: #0a66c2; border-radius: 16px; padding: 6px 14px; font-size: 12px; }
+    button.primary { background: #0a66c2; color: #fff; }
+    button.danger { border-color: #c0392b; color: #c0392b; }
+    button:disabled { opacity: .5; cursor: default; }
+    input { width: 100%; box-sizing: border-box; padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 12px; }
+    .btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    label { font-size: 11px; color: #555; display: block; margin-bottom: 4px; }
+    .hint { font-size: 11px; color: #777; line-height: 1.5; margin-top: 6px; word-break: break-all; }
+    .profile { display: flex; gap: 12px; align-items: center; }
+    .profile img { width: 56px; height: 56px; border-radius: 50%; background: #eee; }
+    .profile .name { font-weight: 600; font-size: 15px; }
+    .profile .sub { color: #666; font-size: 12px; word-break: break-all; }
+    .kv { display: flex; gap: 8px; margin-top: 10px; font-size: 12px; }
+    .kv .k { color: #777; width: 70px; flex: none; }
+    .kv .v { flex: 1; word-break: break-all; }
+    .error { color: #c0392b; font-size: 12px; white-space: pre-wrap; margin-top: 8px; }
+    .empty { color: #666; font-size: 12px; line-height: 1.5; }
+    code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+    #copyRedirect { padding: 1px 8px; font-size: 11px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>LinkedIn Profile</h1>
+    <span id="statusDot">checking…</span>
+  </header>
+
+  <section id="setup">
+    <h2>Step 1 — Client ID</h2>
+    <label for="clientId">LinkedIn App Client ID</label>
+    <input id="clientId" placeholder="e.g. 123456789012">
+    <div class="btns"><button id="save" class="primary">Save</button></div>
+    <div class="hint">
+      LinkedIn Developer App me <b>Sign In with LinkedIn using OpenID Connect</b> product chahiye.
+      Redirect URL (LinkedIn app me add karo):
+      <div style="margin-top:4px">
+        <code id="redirectUri">…</code>
+        <button id="copyRedirect">Copy</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="authSection">
+    <h2>Step 2 — Account</h2>
+    <div class="btns">
+      <button id="login" class="primary">Sign in with LinkedIn</button>
+      <button id="logout" class="danger hidden">Sign out</button>
+      <button id="refresh" class="hidden">Refresh</button>
+    </div>
+    <div id="authError" class="error hidden"></div>
+  </section>
+
+  <section id="profileSection">
+    <h2>Profile</h2>
+    <div id="profileEmpty" class="empty">
+      Abhi koi data nahi. Sign in karke LinkedIn se apna profile data sidebar me lao.
+    </div>
+    <div id="profileWrap" class="hidden">
+      <div class="profile">
+        <img id="avatar" alt="">
+        <div>
+          <div class="name" id="pName"></div>
+          <div class="sub" id="pSub"></div>
+        </div>
+      </div>
+      <div class="kv"><span class="k">Email</span><span class="v" id="pEmail"></span></div>
+      <div class="kv"><span class="k">Locale</span><span class="v" id="pLocale"></span></div>
+      <div class="kv"><span class="k">Verified</span><span class="v" id="pVerified"></span></div>
+      <div class="kv"><span class="k">Expires</span><span class="v" id="pExpires"></span></div>
+    </div>
+    <div class="hint">
+      LinkedIn API sirf <b>signed-in member ka apna basic profile</b> deta hai
+      (name, email, photo) — doosre users ke profiles API se nahi mil sakti.
+    </div>
+  </section>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
