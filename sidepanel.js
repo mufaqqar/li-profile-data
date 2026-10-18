@@ -91,7 +91,8 @@ $("logout").onclick = () => withBusy($("logout"), async () => {
 
 $("refresh").onclick = () => withBusy($("refresh"), async () => {
   const res = await send({ type: "refresh" });
-  renderProfile(res.profile, Date.now());
+  const st = await send({ type: "status" });
+  renderProfile(res.profile, st.expiresAt, st.scopeMode);
 });
 
 $("copyRedirect").onclick = () => {
