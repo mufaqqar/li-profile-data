@@ -26,6 +26,14 @@ function formBody(params) {
   return new URLSearchParams(params).toString();
 }
 
+async function logStep(msg) {
+  const line = `${new Date().toISOString().slice(11, 19)} ${msg}`;
+  console.log("[LCR]", line);
+  const { debugLog = [] } = await chrome.storage.local.get("debugLog");
+  debugLog.push(line);
+  await chrome.storage.local.set({ debugLog: debugLog.slice(-40) });
+}
+
 async function getConfig() {
   const { clientId } = await chrome.storage.local.get("clientId");
   if (!clientId) throw new Error("LinkedIn Client ID save nahi hua — panel me Client ID daalo.");
@@ -95,24 +103,36 @@ async function login() {
   const state = randomString(16);
 
   const authUrl = new URL(AUTH_ENDPOINT);
-  authUrl.search = formBody({
-    response_type: "code",
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    scope: SCOPES.join(" "),
-    state,
-    code_challenge: challenge,
-    code_challenge_method: "S256"
-  });
+  authUrl.search =
+    `response_type=code&client_id=${encodeURIComponent(clientId)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&scope=${encodeURIComponent(SCOPES.join(" "))}` +
+    `&state=${encodeURIComponent(state)}` +
+    `&code_challenge=${encodeURIComponent(challenge)}` +
+    `&code_challenge_method=S256`;
 
-  const redirectUrl = await chrome.identity.launchWebAuthFlow({
-    url: authUrl.toString(),
-    interactive: true
-  });
+  await logStep(`login start | client=${clientId} | redirect=${redirectUri}`);
+  await logStep(`auth URL: ${authUrl.toString()}`);
 
+  let redirectUrl;
+  try {
+    redirectUrl = await chrome.identity.launchWebAuthFlow({
+      url: authUrl.toString(),
+      interactive: true
+    });
+  } catch (e) {
+    await logStep(`launchWebAuthFlow threw: ${e.message || e}`);
+    throw new Error(
+      `Login window fail: ${e.message || e}. ` +
+        `Aksar wajah: LinkedIn app me redirect URL exact nahi hai (https:// aur trailing / chahiye).`
+    );
+  }
+
+  await logStep(`redirect: ${redirectUrl}`);
   const returned = new URL(redirectUrl);
   const error = returned.searchParams.get("error");
   if (error) {
+    await logStep(`oauth error: ${error} ${returned.searchParams.get("error_description") || ""}`);
     throw new Error(`LinkedIn ne mana kiya: ${error} ${returned.searchParams.get("error_description") || ""}`);
   }
   if (returned.searchParams.get("state") !== state) throw new Error("OAuth state mismatch — flow dobara chalao.");
@@ -126,8 +146,10 @@ async function login() {
     code,
     code_verifier: verifier
   });
+  await logStep(`token ok, expires_in=${tokens.expires_in}, refresh=${tokens.refresh_token ? "yes" : "no"}`);
   await storeTokens(tokens);
   const profile = await fetchProfile(tokens.access_token);
+  await logStep(`userinfo ok: ${JSON.stringify(profile).slice(0, 200)}`);
   return { profile, expiresAt: Date.now() + (tokens.expires_in || 0) * 1000 };
 }
 
@@ -181,6 +203,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return { ok: true, ...(await login()) };
       case "logout":
         await logout();
+        return { ok: true };
+      case "debug":
+        return { ok: true, log: (await chrome.storage.local.get("debugLog")).debugLog || [] };
+      case "clearDebug":
+        await chrome.storage.local.remove("debugLog");
         return { ok: true };
       case "refresh": {
         const token = await getValidAccessToken();
