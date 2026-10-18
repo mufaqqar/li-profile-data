@@ -14,10 +14,11 @@ function setError(text) {
   el.classList.toggle("hidden", !text);
 }
 
-function renderProfile(profile, expiresAt) {
+function renderProfile(profile, expiresAt, scopeMode) {
   const has = !!profile;
   $("profileWrap").classList.toggle("hidden", !has);
   $("profileEmpty").classList.toggle("hidden", has);
+  $("pScopes").textContent = scopeMode === "legacy" ? "legacy (r_liteprofile + r_emailaddress)" : "openid profile email";
   if (!has) return;
 
   $("avatar").src = profile.picture || "";
@@ -42,8 +43,17 @@ async function refreshStatus() {
   $("clientId").value = res.clientId || "";
   $("redirectUri").textContent = res.redirectUri;
   setAuthState(res.authenticated);
-  renderProfile(res.profile, res.expiresAt);
+  renderProfile(res.profile, res.expiresAt, res.scopeMode);
   setError(res.error || "");
+}
+
+function renderDebug(lines) {
+  $("debugLog").textContent = (lines || []).join("\n") || "—";
+}
+
+async function loadDebug() {
+  const res = await chrome.runtime.sendMessage({ type: "debug" });
+  if (res && res.ok) renderDebug(res.log);
 }
 
 function withBusy(button, fn) {
@@ -57,6 +67,7 @@ function withBusy(button, fn) {
       busy = false;
       button.disabled = false;
       refreshStatus().catch(() => {});
+      loadDebug().catch(() => {});
     });
 }
 
@@ -69,13 +80,13 @@ $("save").onclick = () => withBusy($("save"), async () => {
 $("login").onclick = () => withBusy($("login"), async () => {
   const res = await send({ type: "login" });
   setAuthState(true);
-  renderProfile(res.profile, res.expiresAt);
+  renderProfile(res.profile, res.expiresAt, res.scopeMode);
 });
 
 $("logout").onclick = () => withBusy($("logout"), async () => {
   await send({ type: "logout" });
   setAuthState(false);
-  renderProfile(null, 0);
+  renderProfile(null, 0, "");
 });
 
 $("refresh").onclick = () => withBusy($("refresh"), async () => {
@@ -91,4 +102,8 @@ $("copyRedirect").onclick = () => {
   });
 };
 
+$("reloadDebug").onclick = () => loadDebug();
+$("clearDebug").onclick = () => send({ type: "clearDebug" }).then(loadDebug).catch(() => {});
+
 refreshStatus().catch((e) => setError(e.message || String(e)));
+loadDebug().catch(() => {});

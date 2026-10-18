@@ -1,7 +1,15 @@
 const AUTH_ENDPOINT = "https://www.linkedin.com/oauth/v2/authorization";
 const TOKEN_ENDPOINT = "https://api.linkedin.com/oauth/v2/accessToken";
 const USERINFO_ENDPOINT = "https://api.linkedin.com/v2/userinfo";
-const SCOPES = ["openid", "profile", "email"];
+const ME_ENDPOINT =
+  "https://api.linkedin.com/v2/me?projection=(id,firstName,lastName,localizedFirstName,localizedLastName,profilePicture(displayImage~:playableStreams))";
+const EMAIL_ENDPOINT =
+  "https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))";
+
+const SCOPE_SETS = {
+  oidc: ["openid", "profile", "email"],
+  legacy: ["r_liteprofile", "r_emailaddress"]
+};
 
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
@@ -48,6 +56,7 @@ async function requestToken(params) {
   });
   if (!res.ok) {
     const text = await res.text();
+    await logStep(`token request fail ${res.status}: ${text.slice(0, 200)}`);
     throw new Error(`Token request fail (${res.status}): ${text.slice(0, 200)}`);
   }
   return res.json();
@@ -62,12 +71,49 @@ async function storeTokens(tokens) {
   });
 }
 
-async function fetchProfile(accessToken) {
-  const res = await fetch(USERINFO_ENDPOINT, {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
+function authedGet(url, accessToken) {
+  return fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+}
+
+async function fetchProfile(accessToken, mode = "oidc") {
+  if (mode === "legacy") {
+    const meRes = await authedGet(ME_ENDPOINT, accessToken);
+    if (!meRes.ok) throw new Error(`/v2/me fail (${meRes.status}): ${(await meRes.text()).slice(0, 200)}`);
+    const me = await meRes.json();
+
+    let email = "";
+    try {
+      const emailRes = await authedGet(EMAIL_ENDPOINT, accessToken);
+      if (emailRes.ok) {
+        const data = await emailRes.json();
+        email = data.elements?.[0]?.["handle~"]?.emailAddress || "";
+      }
+    } catch (_) {}
+
+    const elements = me.profilePicture?.["displayImage~"]?.elements || [];
+    const picture = elements.length ? elements[elements.length - 1].identifiers?.[0]?.url || "" : "";
+
+    const profile = {
+      sub: me.id || "",
+      name: me.localizedFirstName
+        ? `${me.localizedFirstName} ${me.localizedLastName || ""}`.trim()
+        : [me.firstName?.localized?.en_US, me.lastName?.localized?.en_US].filter(Boolean).join(" "),
+      given_name: me.localizedFirstName || "",
+      family_name: me.localizedLastName || "",
+      picture,
+      email,
+      email_verified: !!email,
+      locale: ""
+    };
+    await chrome.storage.local.set({ profile });
+    await logStep(`legacy profile ok: ${JSON.stringify(profile).slice(0, 200)}`);
+    return profile;
+  }
+
+  const res = await fetch(USERINFO_ENDPOINT, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) {
     const text = await res.text();
+    await logStep(`userinfo fail ${res.status}: ${text.slice(0, 200)}`);
     throw new Error(`Profile fetch fail (${res.status}): ${text.slice(0, 200)}`);
   }
   const profile = await res.json();
@@ -95,31 +141,24 @@ async function getValidAccessToken() {
   return tokens.access_token;
 }
 
-async function login() {
-  const { clientId, redirectUri } = await getConfig();
-
+async function authorizeOnce(clientId, redirectUri, mode) {
   const verifier = randomString(32);
   const challenge = await sha256Base64Url(verifier);
   const state = randomString(16);
 
-  const authUrl = new URL(AUTH_ENDPOINT);
-  authUrl.search =
-    `response_type=code&client_id=${encodeURIComponent(clientId)}` +
+  const authUrl =
+    `${AUTH_ENDPOINT}?response_type=code&client_id=${encodeURIComponent(clientId)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&scope=${encodeURIComponent(SCOPES.join(" "))}` +
+    `&scope=${encodeURIComponent(SCOPE_SETS[mode].join(" "))}` +
     `&state=${encodeURIComponent(state)}` +
     `&code_challenge=${encodeURIComponent(challenge)}` +
     `&code_challenge_method=S256`;
 
-  await logStep(`login start | client=${clientId} | redirect=${redirectUri}`);
-  await logStep(`auth URL: ${authUrl.toString()}`);
+  await logStep(`authorize(${mode}) | scopes=${SCOPE_SETS[mode].join(" ")}`);
 
   let redirectUrl;
   try {
-    redirectUrl = await chrome.identity.launchWebAuthFlow({
-      url: authUrl.toString(),
-      interactive: true
-    });
+    redirectUrl = await chrome.identity.launchWebAuthFlow({ url: authUrl, interactive: true });
   } catch (e) {
     await logStep(`launchWebAuthFlow threw: ${e.message || e}`);
     throw new Error(
@@ -132,8 +171,11 @@ async function login() {
   const returned = new URL(redirectUrl);
   const error = returned.searchParams.get("error");
   if (error) {
-    await logStep(`oauth error: ${error} ${returned.searchParams.get("error_description") || ""}`);
-    throw new Error(`LinkedIn ne mana kiya: ${error} ${returned.searchParams.get("error_description") || ""}`);
+    const desc = returned.searchParams.get("error_description") || "";
+    await logStep(`oauth error: ${error} ${desc}`);
+    const err = new Error(`${error} ${desc}`.trim());
+    err.oauthError = error;
+    throw err;
   }
   if (returned.searchParams.get("state") !== state) throw new Error("OAuth state mismatch — flow dobara chalao.");
   const code = returned.searchParams.get("code");
@@ -146,11 +188,31 @@ async function login() {
     code,
     code_verifier: verifier
   });
-  await logStep(`token ok, expires_in=${tokens.expires_in}, refresh=${tokens.refresh_token ? "yes" : "no"}`);
-  await storeTokens(tokens);
-  const profile = await fetchProfile(tokens.access_token);
-  await logStep(`userinfo ok: ${JSON.stringify(profile).slice(0, 200)}`);
-  return { profile, expiresAt: Date.now() + (tokens.expires_in || 0) * 1000 };
+  await logStep(`token ok (${mode}), expires_in=${tokens.expires_in}, refresh=${tokens.refresh_token ? "yes" : "no"}`);
+  return tokens;
+}
+
+async function login() {
+  const { clientId, redirectUri } = await getConfig();
+  const { scopeMode } = await chrome.storage.local.get("scopeMode");
+  const order = scopeMode === "legacy" ? ["legacy", "oidc"] : ["oidc", "legacy"];
+
+  let lastErr = null;
+  for (let i = 0; i < order.length; i++) {
+    const mode = order[i];
+    try {
+      const tokens = await authorizeOnce(clientId, redirectUri, mode);
+      await storeTokens(tokens);
+      await chrome.storage.local.set({ scopeMode: mode });
+      const profile = await fetchProfile(tokens.access_token, mode);
+      return { profile, expiresAt: Date.now() + (tokens.expires_in || 0) * 1000, scopeMode: mode };
+    } catch (e) {
+      lastErr = e;
+      if (!/invalid_scope/i.test(e.message || "") || i === order.length - 1) throw e;
+      await logStep(`scopes "${mode}" invalid LinkedIn ko — fallback "${order[i + 1]}" try kar rahe hain`);
+    }
+  }
+  throw lastErr;
 }
 
 async function logout() {
@@ -159,16 +221,18 @@ async function logout() {
     "expires_at",
     "refresh_token",
     "id_token",
-    "profile"
+    "profile",
+    "scopeMode"
   ]);
 }
 
 async function status() {
-  const { access_token, expires_at, profile, clientId } = await chrome.storage.local.get([
+  const { access_token, expires_at, profile, clientId, scopeMode } = await chrome.storage.local.get([
     "access_token",
     "expires_at",
     "profile",
-    "clientId"
+    "clientId",
+    "scopeMode"
   ]);
   const authenticated = !!access_token;
   let freshProfile = profile || null;
@@ -177,7 +241,7 @@ async function status() {
   if (authenticated) {
     try {
       const token = await getValidAccessToken();
-      freshProfile = await fetchProfile(token);
+      freshProfile = await fetchProfile(token, scopeMode || "oidc");
     } catch (e) {
       error = e.message || String(e);
     }
@@ -190,6 +254,7 @@ async function status() {
     expiresAt: expires_at || 0,
     clientId: clientId || "",
     redirectUri: chrome.identity.getRedirectURL(),
+    scopeMode: scopeMode || "",
     error
   };
 }
@@ -211,7 +276,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return { ok: true };
       case "refresh": {
         const token = await getValidAccessToken();
-        const profile = await fetchProfile(token);
+        const { scopeMode } = await chrome.storage.local.get("scopeMode");
+        const profile = await fetchProfile(token, scopeMode || "oidc");
         return { ok: true, profile };
       }
       default:
